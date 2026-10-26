@@ -1,0 +1,13 @@
+fastapi>=0.110.0
+uvicorn>=0.29.0
+sqlalchemy>=2.0.30
+qdrant-client>=1.9.0
+fastembed>=0.3
+pypdf>=4.0.0
+python-docx>=1.1.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.1
+requests>=2.31.0
+psycopg[binary]>=3.1
+maxapi>=1.2
+aiohttp>=3.9
