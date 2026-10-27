@@ -1,7 +1,9 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
+from qdrant_client.http.exceptions import ApiException
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -67,7 +69,7 @@ def delete_materials(class_name: str, subject: str, db: Annotated[Session, Depen
         for d in docs:
             db.delete(d)
         db.commit()
-    except Exception as e:
+    except (ApiException, SQLAlchemyError, ValueError) as e:
         print("ошибка удаления", e)
         db.rollback()
         return DeleteResponse(ok=False, message="Не получилось удалить материалы")
@@ -130,8 +132,13 @@ def upload_material(
                 qdrant_id=qid
             ))
         db.commit()
-    except Exception as e:
+    except (ApiException, SQLAlchemyError, RuntimeError, ValueError, OSError) as e:
         print("Ошибка загрузки", e)
+        try:
+            qdrant.delete_by_document(doc.id)
+        except (ApiException, ValueError) as qdrant_error:
+            print("не удалось почистить Qdrant", qdrant_error)
+        db.rollback()
         db.delete(doc)
         db.commit()
         return UploadResponse(ok=False, document_id=0, chunks=0,

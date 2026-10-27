@@ -11,10 +11,13 @@ router = APIRouter(prefix="/api", tags=["state"])
 COLUMNS = ("role", "step", "class_name", "subject")
 
 
-def _apply(row: UserState, data: dict):
+def _apply(row: UserState, data: dict, partial: bool = False):
     for field in COLUMNS:
+        if partial and field not in data:
+            continue
         setattr(row, field, data.get(field))
-    row.history = data.get("history") or []
+    if not partial or "history" in data:
+        row.history = data.get("history") or []
     row.extra = {k: v for k, v in data.items() if k not in COLUMNS and k != "history"}
 
 
@@ -37,13 +40,27 @@ def all_states(db: Annotated[Session, Depends(get_db)]):
 
 @router.put("/state")
 def replace_states(states: dict[str, dict], db: Annotated[Session, Depends(get_db)]):
-    db.query(UserState).delete()
-    for user_id, data in states.items():
-        row = UserState(user_id=int(user_id))
+    existing = {row.user_id: row for row in db.query(UserState).all()}
+    saved = 0
+
+    for raw_id, data in states.items():
+        try:
+            user_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+
+        row = existing.get(user_id)
+        if row is None:
+            row = UserState(user_id=user_id)
+            db.add(row)
+            existing[user_id] = row
         _apply(row, data)
-        db.add(row)
+        saved += 1
+
     db.commit()
-    return {"ok": True, "users": len(states)}
+    return {"ok": True, "users": saved}
 
 
 @router.get("/state/{user_id}")
@@ -58,7 +75,7 @@ def save_state(user_id: int, data: dict, db: Annotated[Session, Depends(get_db)]
     if not row:
         row = UserState(user_id=user_id)
         db.add(row)
-    _apply(row, data)
+    _apply(row, data, partial=True)
     db.commit()
     return {"ok": True}
 

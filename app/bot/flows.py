@@ -13,10 +13,18 @@ from .keyboards import (
     student_after_keyboard,
     teacher_after_keyboard,
 )
-from .media import answer_with_feedback, edit_with_image, get_media
+from .media import (
+    answer_with_feedback,
+    edit_status,
+    edit_with_image,
+    get_media,
+    send_status,
+)
 from .state import save_states, user_states
 
 PAGE_RE = re.compile(r"^\s*(?:стр\.?|страница|конспект)\s*(\d+)\s*$", re.IGNORECASE)
+
+MATERIALS_LIMIT = 12
 
 
 async def show_materials(event, user_id):
@@ -33,7 +41,7 @@ async def show_materials(event, user_id):
         )
         return
     builder = InlineKeyboardBuilder()
-    for i, m in enumerate(materials[:12]):
+    for i, m in enumerate(materials[:MATERIALS_LIMIT]):
         builder.row(CallbackButton(
             text=f"{m['class_name']} · {m['subject']}",
             payload=f"mat_{i}"
@@ -42,7 +50,11 @@ async def show_materials(event, user_id):
     builder.row(CallbackButton(text="Сменить роль", payload="change_role"))
     user_states[user_id] = {"role": "student", "step": "choosing", "options": materials}
     save_states()
-    await edit_with_image(event, "Выберите класс и предмет:", builder.as_markup(), img)
+
+    text = "Выберите класс и предмет:"
+    if len(materials) > MATERIALS_LIMIT:
+        text += f"\n\nПоказаны первые {MATERIALS_LIMIT} из {len(materials)}."
+    await edit_with_image(event, text, builder.as_markup(), img)
 
 
 async def ask_backend(event, user_id, text, detailed=False):
@@ -62,49 +74,68 @@ async def ask_backend(event, user_id, text, detailed=False):
         "history": history[-4:],
         "detailed": detailed,
     }
+
+    message_id = await send_status(event)
     try:
         status, data = await backend.ask(payload)
-        if status == 200:
-            answer = data.get("answer", "Не удалось получить ответ.")
-            page = data.get("page", 0)
-            textbook = data.get("textbook", "")
+        if status != 200:
+            await edit_status(message_id, "Ошибка на стороне сервера. Попробуйте позже.")
+            return
 
-            source = (f"\n\nИсточник: {textbook or 'учебник'}, страница {page}"
-                      if page > 0 else "")
+        answer = data.get("answer", "Не удалось получить ответ.")
+        page = data.get("page", 0)
+        textbook = data.get("textbook", "")
 
-            clean = clean_formulas(answer)
+        source = (f"\n\nИсточник: {textbook or 'учебник'}, страница {page}"
+                  if page > 0 else "")
+
+        clean = clean_formulas(answer)
+        if not detailed:
             history.append(f"Вопрос: {text}\nОтвет: {clean[:400]}")
             state["history"] = history[-8:]
-            state["last_question"] = text
-            save_states()
+        state["last_question"] = text
+        save_states()
 
-            kb = student_after_keyboard() if state.get("role") == "student" else teacher_after_keyboard()
-            prefix = "Подробнее:\n\n" if detailed else ""
-            await answer_with_feedback(event, f"{prefix}{clean}{source}", kb=kb)
-        else:
-            await event.message.answer("Ошибка на стороне сервера. Попробуйте позже.", attachments=[change_role_keyboard()])
+        kb = student_after_keyboard() if state.get("role") == "student" else teacher_after_keyboard()
+        prefix = "Подробнее:\n\n" if detailed else ""
+        await answer_with_feedback(event, f"{prefix}{clean}{source}", kb=kb, message_id=message_id)
     except aiohttp.ClientError as e:
-        await event.message.answer(f"Ошибка соединения: {e}", attachments=[change_role_keyboard()])
+        await edit_status(message_id, f"Ошибка соединения: {e}")
+
 
 async def page_backend(event, user_id, page):
     state = user_states.get(user_id, {})
+    class_name = state.get("class_name")
+    subject = state.get("subject")
+
+    if not class_name or not subject:
+        await event.message.answer("Сначала выберите класс и предмет: /start.", attachments=[change_role_keyboard()])
+        return
+
     body = {
-        "class_name": state.get("class_name"),
-        "subject": state.get("subject"),
+        "class_name": class_name,
+        "subject": subject,
         "page": page,
     }
+
+    message_id = await send_status(event)
     try:
         status, data = await backend.page_summary(body)
-        if status == 200:
-            clean = clean_formulas(data.get("answer", ""))
-            textbook = data.get("textbook", "")
-            chapter = data.get("chapter", "")
-            src = f"\n\nИсточник: {textbook or 'учебник'}"
-            if chapter:
-                src += f", {chapter}"
-            src += f", страница {page}"
-            await answer_with_feedback(event, f"Конспект страницы {page}:\n\n{clean}{src}")
-        else:
-            await event.message.answer("Ошибка на стороне сервера. Попробуйте позже.")
+        if status != 200:
+            await edit_status(message_id, "Ошибка на стороне сервера. Попробуйте позже.")
+            return
+
+        clean = clean_formulas(data.get("answer", ""))
+        textbook = data.get("textbook", "")
+        chapter = data.get("chapter", "")
+        src = f"\n\nИсточник: {textbook or 'учебник'}"
+        if chapter:
+            src += f", {chapter}"
+        src += f", страница {page}"
+        await answer_with_feedback(
+            event,
+            f"Конспект страницы {page}:\n\n{clean}{src}",
+            message_id=message_id,
+        )
     except aiohttp.ClientError as e:
-        await event.message.answer(f"Ошибка соединения: {e}")
+        await edit_status(message_id, f"Ошибка соединения: {e}")

@@ -12,10 +12,13 @@ STOP_WORDS = {
     "нужно", "надо", "значит", "определение",
 }
 
-EXCERPT_LIMIT = 600
+EXCERPT_LIMIT = 700
 EXCERPT_OFFSET = 400
-MAX_PAYLOADS = 3    
-WORD_SEARCH_K = 2
+VECTOR_K = 6
+MAX_PAYLOADS = 4
+WORD_SEARCH_K = 3
+
+REFERENCE_MARKERS = ("на странице", "см. страницу", "смотрите", "см. с.")
 
 
 def _keywords(question: str) -> list[str]:
@@ -36,18 +39,21 @@ def _excerpt(text: str, words: list[str], limit: int = EXCERPT_LIMIT) -> str:
     return text[start:start + limit]
 
 
+def _is_reference(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in REFERENCE_MARKERS)
+
+
 def _best_page(payloads: list[dict], words: list[str]) -> int:
     if not words:
         return payloads[0]["page"]
 
-    best_page = payloads[0]["page"]
+    candidates = [p for p in payloads if not _is_reference(p["text"])] or payloads
+    best_page = candidates[0]["page"]
     best_score = -1
 
-    for p in payloads:
-        text = p.get("text", "").lower()
-        if "на странице" in text or "см. страницу" in text or "смотрите" in text:
-            continue
-        score = sum(text.count(w) for w in words)
+    for p in candidates:
+        score = sum(p["text"].lower().count(w) for w in words)
         if score > best_score:
             best_score = score
             best_page = p["page"]
@@ -55,30 +61,39 @@ def _best_page(payloads: list[dict], words: list[str]) -> int:
     return best_page
 
 
+def _dedupe(payloads: list[dict]) -> list[dict]:
+    seen = set()
+    result = []
+    for p in payloads:
+        key = (p.get("page"), p.get("text"))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(p)
+    return result
+
+
 @router.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest) -> AskResponse:
     query_vec = embed(req.question)
+    words = _keywords(req.question)
 
     hits = qdrant.search(
         query_vector=query_vec,
         class_name=req.class_name,
         subject=req.subject,
-        top_k=5,
+        top_k=VECTOR_K,
     )
-
     payloads = [h.payload for h in hits]
-    words = _keywords(req.question)
 
     if words:
-        seen = {p.get("text") for p in payloads}
-        extra = []
-        for p in qdrant.search_by_words(words, req.class_name, req.subject, top_k=WORD_SEARCH_K):
-            if p.payload.get("text") not in seen:
-                seen.add(p.payload.get("text"))
-                extra.append(p.payload)
+        extra = [
+            p.payload
+            for p in qdrant.search_by_words(words, req.class_name, req.subject, top_k=WORD_SEARCH_K)
+        ]
         payloads = extra + payloads
 
-    payloads = payloads[:MAX_PAYLOADS]
+    payloads = _dedupe(payloads)[:MAX_PAYLOADS]
 
     if not payloads:
         return AskResponse(
@@ -86,33 +101,33 @@ def ask(req: AskRequest) -> AskResponse:
             page=0,
         )
 
-    top = payloads[0]
-    top_text = top["text"]
-    
-    best_page = top["page"]
-    words = _keywords(req.question)
-    best_score = -1
-    
-    for p in payloads:
-        score = sum(p["text"].lower().count(w) for w in words)
-        if score > best_score:
-            best_score = score
-            best_page = p["page"]
-
     context = "\n\n---\n\n".join(
         f"[Фрагмент {i + 1}, страница {p['page']}]\n{_excerpt(p['text'], words)}"
         for i, p in enumerate(payloads)
     )
 
-    answer = generate_answer(context, req.question, best_page, req.history, req.detailed)
+    answer, page = generate_answer(
+        context,
+        req.question,
+        payloads[0]["page"],
+        req.history,
+        req.detailed,
+    )
+
+    pages = {p["page"] for p in payloads}
+    if page not in pages:
+        page = _best_page(payloads, words)
+
+    source = next((p for p in payloads if p["page"] == page), payloads[0])
+    top_text = source["text"]
 
     return AskResponse(
         answer=answer,
-        page=best_page,
+        page=page,
         source_text=top_text[:200] + ("..." if len(top_text) > 200 else ""),
-        textbook=top.get("textbook", ""),
-        chapter=top.get("chapter", ""),
-        paragraph=top.get("paragraph", ""),
+        textbook=source.get("textbook", ""),
+        chapter=source.get("chapter", ""),
+        paragraph=source.get("paragraph", ""),
     )
 
 
@@ -128,7 +143,7 @@ def page_summary(req: PageRequest) -> AskResponse:
 
     top = hits[0].payload
     context = "\n\n---\n\n".join(h.payload["text"] for h in hits)
-    answer = generate_answer(
+    answer, _ = generate_answer(
         context,
         "Сделай краткий конспект этой страницы: главные определения, правила и формулы.",
         req.page,

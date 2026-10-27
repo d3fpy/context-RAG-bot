@@ -51,7 +51,8 @@ def back_keyboard():
 
 def enter_another_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.row(CallbackButton(text="Загрузить еще один материал", payload="change_role"))
+    builder.row(CallbackButton(text="Загрузить еще один материал", payload="upload_book"))
+    builder.row(CallbackButton(text="Панель управления", payload="panel"))
     builder.row(CallbackButton(text="Сменить роль", payload="change_role"))
     return builder.as_markup()
 

@@ -20,6 +20,9 @@ async def fetch_states() -> dict:
 
 async def push_states(states: dict) -> dict:
     async with aiohttp.ClientSession() as session, session.put(f"{API_BASE}/api/state", json=states, timeout=15) as r:
+        if r.status != 200:
+            print("состояние не сохранилось:", r.status, await r.text())
+            return {}
         return await r.json()
 
 

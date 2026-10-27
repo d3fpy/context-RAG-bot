@@ -4,9 +4,14 @@ from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
 from . import backend
 from .config import HELP_TEXT, TEACHER_IMG, WELCOME_IMG
-from .flows import ask_backend, show_materials
+from .flows import MATERIALS_LIMIT, ask_backend, show_materials
 from .instance import dp
-from .keyboards import back_keyboard, help_keyboard, role_keyboard, teacher_keyboard
+from .keyboards import (
+    back_keyboard,
+    help_keyboard,
+    role_keyboard,
+    teacher_keyboard,
+)
 from .media import edit_with_image, get_media
 from .state import save_states, user_states
 
@@ -14,7 +19,7 @@ from .state import save_states, user_states
 @dp.message_callback()
 async def on_callback(event):
     user_id = event.callback.user.user_id
-    payload = event.callback.payload
+    payload = event.callback.payload or ""
 
     if payload == "help":
         await event.message.answer(HELP_TEXT, attachments=[help_keyboard()])
@@ -74,7 +79,7 @@ async def on_callback(event):
             await event.message.edit(text="Материалов пока нет.", attachments=[teacher_keyboard()])
             return
         builder = InlineKeyboardBuilder()
-        for i, m in enumerate(materials[:12]):
+        for i, m in enumerate(materials[:MATERIALS_LIMIT]):
             builder.row(CallbackButton(
                 text=f"{m['class_name']} · {m['subject']}",
                 payload=f"del_{i}"
@@ -82,7 +87,10 @@ async def on_callback(event):
         builder.row(CallbackButton(text="Назад", payload="panel"))
         user_states.setdefault(user_id, {})["del_options"] = materials
         save_states()
-        await event.message.edit(text="Какие материалы удалить?", attachments=[builder.as_markup()])
+        text = "Какие материалы удалить?"
+        if len(materials) > MATERIALS_LIMIT:
+            text += f"\n\nПоказаны первые {MATERIALS_LIMIT} из {len(materials)}."
+        await event.message.edit(text=text, attachments=[builder.as_markup()])
 
     elif payload.startswith("del_"):
         state = user_states.get(user_id, {})
@@ -116,6 +124,8 @@ async def on_callback(event):
             await event.message.answer(f"Ошибка соединения: {e}")
             return
         state["del_options"] = []
+        state.pop("class_name", None)
+        state.pop("subject", None)
         save_states()
         await event.message.edit(
             text=f"{res.get('message', 'Готово')}\nПанель управления:",

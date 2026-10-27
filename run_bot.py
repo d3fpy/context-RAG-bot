@@ -6,14 +6,16 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from app.bot.config import BOT_TOKEN
-from app.bot.main import main
 
 
 def main_entry():
     if not BOT_TOKEN:
-        print("Токен бота не был найден. Впишите его в .env")
+        print("Токен бота не был найден. Впишите MAX_BOT_TOKEN в .env")
         return
-    print('Бот запущен!')
+
+    from app.bot.main import main
+
+    print("Бот запущен!")
     asyncio.run(main())
 
 
