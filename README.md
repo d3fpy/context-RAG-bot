@@ -57,9 +57,17 @@ MAX_BOT_TOKEN=ваш_токен_из_кабинета_MAX
 
 Установите зависимости для бота и запустите его (бот работает локально, обращаясь к API внутри Docker):
 
+## Windows
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
+pip install -r requirements.txt
+python run_bot.py
+```
+## Linux/macOS
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python run_bot.py
 ```
@@ -165,13 +173,7 @@ curl -X POST http://localhost:8000/api/ask \
 
 Поднять postgres, qdrant и ollama (`ollama pull qwen2.5:3b`), заполнить `.env`, затем:
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-python run_bot.py
-```
+
 
 ## Ограничения
 
