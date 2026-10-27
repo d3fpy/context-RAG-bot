@@ -5,6 +5,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Qdrant](https://img.shields.io/badge/Qdrant-FF4A00?logo=qdrant&logoColor=white)](https://qdrant.tech/)
 [![Ollama](https://img.shields.io/badge/Ollama-000000?logo=ollama&logoColor=white)](https://ollama.com/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 
 Бот в мессенджере [МАКС](https://max.ru/ideya_fiks_40_bot), который отвечает школьникам на вопросы
 по их учебникам и всегда указывает источник: учебник, главу, параграф и страницу.
